@@ -1,3 +1,6 @@
 __pycache__/
 */__pycache__/
-data/
+data/imagenette2-320
+data/UCF101
+data/ucfTrainTestlist
+data/imagenette2-320.tgz
