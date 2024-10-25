@@ -42,6 +42,7 @@ def map_shap_to_image(shap_values, img_size=224, patch_size=16):
 
 def visualize_shap(shap_values, original_input, model_type="vit", frame_idx=0, patch_size=16, smooth=False, color_map='jet'):
     if model_type == "vit":
+        # ViT visualization using patch mapping
         upscaled_shap = map_shap_to_image(shap_values[0], img_size=224, patch_size=patch_size)
         print(f"SHAP value range before normalization: min={upscaled_shap.min()}, max={upscaled_shap.max()}")
         
@@ -58,7 +59,7 @@ def visualize_shap(shap_values, original_input, model_type="vit", frame_idx=0, p
 
         ax[1].imshow(original_input)
         im = ax[1].imshow(normalized_shap, cmap=color_map, alpha=0.5)
-        ax[1].set_title('Upscaled SHAP Overlay')
+        ax[1].set_title('Upscaled SHAP Overlay without Clipping')
         ax[1].axis('off')
         
         fig.colorbar(im, ax=ax[1], orientation='vertical')
@@ -70,18 +71,29 @@ def visualize_shap(shap_values, original_input, model_type="vit", frame_idx=0, p
         frame_shap = shap_values[0][:, frame_idx, :, :]
         original_frame = original_input[0][:, frame_idx, :, :]
 
-        frame_shap = frame_shap.mean(axis=0).cpu().numpy()
+        if isinstance(frame_shap, torch.Tensor):
+            frame_shap = frame_shap.mean(axis=0).cpu().numpy()
+        else:
+            frame_shap = frame_shap.mean(axis=0)
+
+        if original_frame.shape[0] > 3:
+            original_frame = original_frame[0, :, :]  # select first channel
+        else:
+            original_frame = original_frame.permute(1, 2, 0).cpu().numpy()
 
         normalized_shap = (frame_shap - frame_shap.min()) / (frame_shap.max() - frame_shap.min())
 
         fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-        ax[0].imshow(original_frame.permute(1, 2, 0).cpu())
+        ax[0].imshow(original_frame, cmap="gray" if original_frame.ndim == 2 else None)  # handle grayscale or rgb
         ax[0].set_title('Original Frame')
         ax[0].axis('off')
 
-        ax[1].imshow(original_frame.permute(1, 2, 0).cpu())
+        ax[1].imshow(original_frame, cmap="gray" if original_frame.ndim == 2 else None)
+        if normalized_shap.ndim == 3 and normalized_shap.shape[-1] > 1:
+            normalized_shap = normalized_shap.mean(axis=-1)
+
         im = ax[1].imshow(normalized_shap, cmap=color_map, alpha=0.5)
-        ax[1].set_title('SHAP Overlay on Frame')
+        ax[1].set_title('SHAP Overlay')
         ax[1].axis('off')
         
         fig.colorbar(im, ax=ax[1], orientation='vertical')
