@@ -6,6 +6,7 @@ import torch
 from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 from torchvision.datasets import UCF101
+from torchvision.datasets.video_utils import VideoClips
 import glob
 import zipfile
 
@@ -74,9 +75,9 @@ def download_and_extract_ucf101(data_dir='../data', max_videos=10):
                     with open(video_path, 'wb') as file:
                         for chunk in response.iter_content(chunk_size=1024):
                             file.write(chunk)
-                    print(f"Download complete: {video_name}")
+                    print(f"download complete: {video_name}")
                 else:
-                    print(f"Failed to download {video_name} from {video_url}")
+                    print(f"failed to download {video_name} from {video_url}")
             else:
                 print(f"{video_name} already exists, skipping download.")
 
@@ -84,70 +85,92 @@ def download_ucf101_annotations(data_dir='../data'):
     annotation_dir = os.path.join(data_dir, 'ucfTrainTestlist')
     os.makedirs(annotation_dir, exist_ok=True)
 
-    # Updated URL to download the annotation file for training
     annotation_url = "https://www.crcv.ucf.edu/data/UCF101/UCF101TrainTestSplits-RecognitionTask.zip"
     annotation_zip_path = os.path.join(annotation_dir, 'UCF101TrainTestSplits-RecognitionTask.zip')
 
-    # Download the zip file if it doesn't exist
     if not os.path.exists(annotation_zip_path):
-        print("Downloading annotations...")
-        # Set verify=False to bypass SSL verification
         response = requests.get(annotation_url, stream=True, verify=False)
         with open(annotation_zip_path, 'wb') as file:
             for chunk in response.iter_content(chunk_size=1024):
                 file.write(chunk)
-        print("Annotations download complete.")
+        print("annotations download complete.")
     else:
-        print("Annotations already downloaded, skipping download.")
+        print("annotations already downloaded, skipping download")
 
-    # Extract the zip file if not already extracted
     if not os.path.exists(os.path.join(annotation_dir, 'trainlist01.txt')):
-        print("Extracting annotations...")
         with zipfile.ZipFile(annotation_zip_path, 'r') as zip_ref:
             zip_ref.extractall(annotation_dir)
-        print("Annotations extracted.")
+        print("annotations extracted")
     else:
-        print("Annotations already extracted, skipping extraction.")
+        print("annotations already extracted, skipping extraction")
 
 def check_video_files(data_dir='../data/UCF101'):
     video_files = glob.glob(os.path.join(data_dir, '**', '*.avi'), recursive=True)
     if not video_files:
-        print("No video files found. Check if they are downloaded correctly.")
+        print("no video files found")
     else:
-        print(f"Found {len(video_files)} video files.")
+        print(f"found {len(video_files)} video files")
 
 def get_ucf101_dataloader(batch_size=4, img_size=112, data_dir='../data', num_frames=16):
+    def custom_transform(video):
+        video = video.permute(0, 3, 1, 2)
+
+        if video.dim() == 4 and video.size(1) == 3:
+            print(f"skipping reshape, already in format: {video.shape}")
+        else:
+            video = video.permute(0, 3, 1, 2)
+        
+        if video.dim() != 4 or video.size(1) != 3:
+            raise ValueError(f"unexpected video format with shape: {video.shape}")
+
+        resized_frames = torch.stack([transforms.Resize((img_size, img_size))(frame) for frame in video])
+        
+        resized_frames = resized_frames.to(torch.float32) / 255.0
+        
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        normalized_video = torch.stack([normalize(frame) for frame in resized_frames])
+        
+        return normalized_video
+
     transform = transforms.Compose([
-        transforms.Resize((img_size, img_size)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Lambda(custom_transform)  # apply custom transformation
     ])
 
     class UCF101Dataset(UCF101):
         def __init__(self, root, annotation_path, frames_per_clip=num_frames, transform=None):
-            super().__init__(root, annotation_path, frames_per_clip=frames_per_clip, transform=transform)
-            self.transform = transform
+            video_paths = []  # manually init video_clips due for double call override
+            for root_dir, _, files in os.walk(root):
+                video_paths.extend([os.path.join(root_dir, f) for f in files if f.endswith('.avi')])
+            
+            self.manual_video_clips = VideoClips(
+                video_paths,
+                clip_length_in_frames=frames_per_clip,
+                frames_between_clips=1
+            )
 
-            # Diagnostic logging
-            print(f"Number of valid video clips: {len(self.video_clips)}")
-            if len(self.video_clips) == 0:
-                print("Warning: No valid video clips detected. Check your video files.")
+            super().__init__(root, annotation_path, frames_per_clip=frames_per_clip, transform=transform)
+
+            if hasattr(self, 'video_clips') and len(self.video_clips.video_paths) == 0:
+                print("reassigning manually initialized videoclips")
+                self.video_clips = self.manual_video_clips
+
+            if hasattr(self, 'samples') and hasattr(self, 'video_clips'):
+                print("reassigning samples and indices based on the manually initialized videoclips")
+                self.samples = [(path, self.manual_video_clips.video_paths.index(path)) for path in self.manual_video_clips.video_paths]
+                self.indices = list(range(len(self.samples)))
+
+            self.transform = transform
 
         def __getitem__(self, idx):
             video, _, label = super().__getitem__(idx)
-            if self.transform is not None:
-                video = torch.stack([self.transform(frame) for frame in video])
             return video, label
 
-    # Download and extract the videos and annotations
     download_and_extract_ucf101(data_dir=data_dir)
     download_ucf101_annotations(data_dir=data_dir)
     check_video_files(data_dir=os.path.join(data_dir, 'UCF101'))
 
-    # Correct annotation path
     annotation_path = os.path.join(data_dir, 'ucfTrainTestlist')
     
-    # Now load the dataset using the annotations
     dataset = UCF101Dataset(
         root=os.path.join(data_dir, 'UCF101'),
         annotation_path=annotation_path,
