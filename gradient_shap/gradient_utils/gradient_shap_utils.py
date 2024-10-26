@@ -9,9 +9,6 @@ import scipy.ndimage
 def compute_shap_values(model, inputs, background=None, layer=None, model_type="vit"):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    if model_type not in ["vit", "3d_resnet"]:
-        raise ValueError(f"Unsupported model type: {model_type}. Expected 'vit' or '3d_resnet'.")
-
     if background is None:
         background = inputs[:5]
     
@@ -42,8 +39,7 @@ def map_shap_to_image(shap_values, img_size=224, patch_size=16):
 
 def visualize_shap(shap_values, original_input, model_type="vit", frame_idx=0, patch_size=16, smooth=False, color_map='jet'):
     if model_type == "vit":
-        # ViT visualization using patch mapping
-        upscaled_shap = map_shap_to_image(shap_values[0], img_size=224, patch_size=patch_size)
+        upscaled_shap = map_shap_to_image(shap_values[0], img_size=224, patch_size=patch_size)  # vit vis using patch mapping
         print(f"SHAP value range before normalization: min={upscaled_shap.min()}, max={upscaled_shap.max()}")
         
         normalized_shap = (upscaled_shap - upscaled_shap.min()) / (upscaled_shap.max() - upscaled_shap.min())
@@ -59,7 +55,7 @@ def visualize_shap(shap_values, original_input, model_type="vit", frame_idx=0, p
 
         ax[1].imshow(original_input)
         im = ax[1].imshow(normalized_shap, cmap=color_map, alpha=0.5)
-        ax[1].set_title('Upscaled SHAP Overlay without Clipping')
+        ax[1].set_title('Upscaled SHAP Overlay')
         ax[1].axis('off')
         
         fig.colorbar(im, ax=ax[1], orientation='vertical')

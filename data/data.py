@@ -1,4 +1,5 @@
 # data.py
+
 import os
 import requests
 import tarfile
@@ -94,40 +95,23 @@ def download_ucf101_annotations(data_dir='../data'):
             for chunk in response.iter_content(chunk_size=1024):
                 file.write(chunk)
         print("annotations download complete.")
-    else:
-        print("annotations already downloaded, skipping download")
 
     if not os.path.exists(os.path.join(annotation_dir, 'trainlist01.txt')):
         with zipfile.ZipFile(annotation_zip_path, 'r') as zip_ref:
             zip_ref.extractall(annotation_dir)
         print("annotations extracted")
-    else:
-        print("annotations already extracted, skipping extraction")
-
-def check_video_files(data_dir='../data/UCF101'):
-    video_files = glob.glob(os.path.join(data_dir, '**', '*.avi'), recursive=True)
-    if not video_files:
-        print("no video files found")
-    else:
-        print(f"found {len(video_files)} video files")
 
 def get_ucf101_dataloader(batch_size=4, img_size=112, data_dir='../data', num_frames=16):
     def custom_transform(video):
-        video = video.permute(0, 3, 1, 2)
-
         if video.dim() == 4 and video.size(1) == 3:
-            print(f"skipping reshape, already in format: {video.shape}")
+            pass
         else:
             video = video.permute(0, 3, 1, 2)
-        
-        if video.dim() != 4 or video.size(1) != 3:
-            raise ValueError(f"unexpected video format with shape: {video.shape}")
 
         resized_frames = torch.stack([transforms.Resize((img_size, img_size))(frame) for frame in video])
-        
         resized_frames = resized_frames.to(torch.float32) / 255.0
         
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # norm
         normalized_video = torch.stack([normalize(frame) for frame in resized_frames])
         
         return normalized_video
@@ -167,7 +151,6 @@ def get_ucf101_dataloader(batch_size=4, img_size=112, data_dir='../data', num_fr
 
     download_and_extract_ucf101(data_dir=data_dir)
     download_ucf101_annotations(data_dir=data_dir)
-    check_video_files(data_dir=os.path.join(data_dir, 'UCF101'))
 
     annotation_path = os.path.join(data_dir, 'ucfTrainTestlist')
     
