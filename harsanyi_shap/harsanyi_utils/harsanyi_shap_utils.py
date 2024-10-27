@@ -23,14 +23,23 @@ def compute_shap_from_harsanyi_vit(model, data):
                 requires_grad=True
             )
 
-        contributions = torch.einsum('ph,bph->bp', model.patch_contributions, transformer_output)
+        if not hasattr(model, 'patch_interaction_contributions') or \
+           model.patch_interaction_contributions.size(0) != num_patches_in_output:
+            model.patch_interaction_contributions = nn.Parameter(
+                torch.randn(num_patches_in_output, num_patches_in_output, model.hidden_dim, device=device),
+                requires_grad=True
+            )
+
+        contributions_individual = torch.einsum('ph,bph->bp', model.patch_contributions, transformer_output)
+
+        contributions_pairwise = torch.einsum('pph,bph,bqh->bp', model.patch_interaction_contributions, transformer_output, transformer_output)
         
-        for i in range(model.num_patches):  # compute shapley values based on contributions
-            contribution = contributions[:, i]
+        total_contributions = contributions_individual + contributions_pairwise
+        
+        for i in range(model.num_patches):
+            contribution = total_contributions[:, i]
             shap_values.append(contribution.cpu().detach())
     
-    expected_patches = model.num_patches
-
     return torch.stack(shap_values, dim=1)
 
 def map_harsanyi_shap_to_image(shap_values, img_size=224, patch_size=16):

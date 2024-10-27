@@ -32,12 +32,15 @@ class HarsanyiViT(nn.Module):
         if self.num_patches is None:
             self.num_patches = transformer_output.size(1) - 1
             self.patch_contributions = nn.Parameter(torch.randn(self.num_patches, self.hidden_dim, device=device), requires_grad=True)
+            self.patch_interaction_contributions = nn.Parameter(torch.randn(self.num_patches, self.num_patches, self.hidden_dim, device=device), requires_grad=True)
 
         cls_token = transformer_output[:, 0, :]
 
-        contributions = torch.einsum('ph,bph->bh', self.patch_contributions, transformer_output[:, 1:, :])
-        
-        aggregated_output = cls_token + contributions
+        contributions_individual = torch.einsum('ph,bph->bh', self.patch_contributions, transformer_output[:, 1:, :])
+        contributions_pairwise = torch.einsum('pph,bph,bqh->bh', self.patch_interaction_contributions, transformer_output[:, 1:, :], transformer_output[:, 1:, :])
+        aggregated_contributions = contributions_individual + contributions_pairwise
+
+        aggregated_output = cls_token + aggregated_contributions
 
         prediction = self.output_layer(aggregated_output)
 
@@ -94,8 +97,14 @@ class HarsanyiResNet3D(nn.Module):
         
         if self.num_cubes is None:
             self.num_cubes = depth * height * width
+            # Initialize individual cube contributions
             self.cube_contributions = nn.Parameter(
                 torch.randn(channels, self.num_cubes, device=device),
+                requires_grad=True
+            )
+            # Initialize pairwise cube interactions
+            self.cube_interaction_contributions = nn.Parameter(
+                torch.randn(self.num_cubes, self.num_cubes, channels, device=device),
                 requires_grad=True
             )
         
@@ -112,10 +121,13 @@ class HarsanyiResNet3D(nn.Module):
                 torch.randn(channels, self.num_cubes, device=device),
                 requires_grad=True
             )
+            self.cube_interaction_contributions = nn.Parameter(torch.randn(self.num_cubes, self.num_cubes, channels, device=device), requires_grad=True)
         
-        contributions = torch.einsum('cn,bcn->bc', self.cube_contributions, flattened_features)
-        aggregated_output = contributions
-        prediction = self.output_layer(aggregated_output)
+        contributions_individual = torch.einsum('cn,bcn->bc', self.cube_contributions, flattened_features)
+        contributions_pairwise = torch.einsum('ncm,bcn,bcm->bc', self.cube_interaction_contributions, flattened_features, flattened_features)
+        aggregated_contributions = contributions_individual + contributions_pairwise
+
+        prediction = self.output_layer(aggregated_contributions)
         
         return prediction
 
