@@ -91,28 +91,22 @@ class HarsanyiResNet3D(nn.Module):
         device = x.device
         
         features = self.resnet3d.stem(x)
-        
+
         batch_size = features.size(0)
         channels, depth, height, width = features.size()[1:]
-        
+
         if self.num_cubes is None:
             self.num_cubes = depth * height * width
-            # Initialize individual cube contributions
             self.cube_contributions = nn.Parameter(
                 torch.randn(channels, self.num_cubes, device=device),
                 requires_grad=True
             )
-            # Initialize pairwise cube interactions
-            self.cube_interaction_contributions = nn.Parameter(
-                torch.randn(self.num_cubes, self.num_cubes, channels, device=device),
-                requires_grad=True
-            )
-        
+
         features = self.resnet3d.layer1(features)
         features = self.resnet3d.layer2(features)
         features = self.resnet3d.layer3(features)
         features = self.resnet3d.layer4(features)
-        
+
         flattened_features = features.view(batch_size, channels, -1)
 
         if self.cube_contributions.shape != (channels, flattened_features.size(-1)):
@@ -121,14 +115,11 @@ class HarsanyiResNet3D(nn.Module):
                 torch.randn(channels, self.num_cubes, device=device),
                 requires_grad=True
             )
-            self.cube_interaction_contributions = nn.Parameter(torch.randn(self.num_cubes, self.num_cubes, channels, device=device), requires_grad=True)
-        
-        contributions_individual = torch.einsum('cn,bcn->bc', self.cube_contributions, flattened_features)
-        contributions_pairwise = torch.einsum('ncm,bcn,bcm->bc', self.cube_interaction_contributions, flattened_features, flattened_features)
-        aggregated_contributions = contributions_individual + contributions_pairwise
 
-        prediction = self.output_layer(aggregated_contributions)
-        
+        contributions = torch.einsum('cn,bcn->bc', self.cube_contributions, flattened_features)
+        aggregated_output = contributions
+        prediction = self.output_layer(aggregated_output)
+
         return prediction
 
 def train_harsanyi_resnet3d(model, train_loader, epochs=20, warmup_epochs=1, lr=0.00025, min_lr=1e-6):
@@ -146,7 +137,7 @@ def train_harsanyi_resnet3d(model, train_loader, epochs=20, warmup_epochs=1, lr=
         total_loss = 0.0
         for data, target in train_loader:
             data = data.permute(0, 2, 1, 3, 4)
-            
+
             data, target = data.to(device), target.to(device)
 
             optimizer.zero_grad()
